@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Duskflap — a sunset flying game</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --sky-top:#16213E;
+    --sky-mid:#5D4E8C;
+    --sky-bottom:#FF9472;
+    --sun:#FFD23F;
+    --accent:#FF6B35;
+    --pipe:#2D6A4F;
+    --pipe-dark:#1F4D38;
+    --panel:rgba(12,15,28,0.72);
+    --panel-solid:#12172b;
+    --cream:#FFF6E9;
+    --ink:#1A1A2E;
+    --muted:#C9C4D8;
+    --danger:#FF5D6C;
+    --success:#4ECB71;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;height:100%;
+    font-family:'Inter',sans-serif;
+    background:var(--sky-top);
+    color:var(--cream);
+    overflow:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #app{position:relative;width:100%;height:100vh;height:100dvh;overflow:hidden;}
+
+  /* ---------- Ambient dusk background (shared) ---------- */
+  #skyBg{
+    position:absolute;inset:0;z-index:0;
+    background:linear-gradient(180deg,var(--sky-top) 0%, var(--sky-mid) 55%, var(--sky-bottom) 100%);
+  }
+  #sun{
+    position:absolute;left:50%;top:22%;width:120px;height:120px;border-radius:50%;
+    background:radial-gradient(circle at 35% 35%, #FFE9A8, var(--sun) 60%, var(--accent) 100%);
+    box-shadow:0 0 60px 20px rgba(255,210,63,0.35);
+    transform:translate(-50%,-50%);
+    z-index:1;
+  }
+  .cloud{
+    position:absolute;z-index:1;opacity:0.5;
+    background:#fff; border-radius:100px;
+    filter:blur(0.5px);
+    animation:drift linear infinite;
+  }
+  @keyframes drift{ from{transform:translateX(0);} to{transform:translateX(-140vw);} }
+
+  /* ---------- Auth screen ---------- */
+  #authScreen{
+    position:absolute;inset:0;z-index:5;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:24px;
+  }
+  .brand{
+    text-align:center;margin-bottom:22px;
+  }
+  .brand h1{
+    font-family:'Baloo 2',sans-serif;font-weight:800;font-size:2.6rem;margin:0;
+    color:var(--cream);
+    text-shadow:0 3px 0 rgba(0,0,0,0.25);
+    letter-spacing:0.5px;
+  }
+  .brand h1 span{color:var(--sun);}
+  .brand p{margin:6px 0 0;color:var(--muted);font-size:0.95rem;}
+
+  .birdmark{width:54px;height:54px;margin:0 auto 8px;position:relative;}
+
+  .authCard{
+    width:100%;max-width:360px;
+    background:var(--panel);
+    backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,0.12);
+    border-radius:20px;
+    padding:22px 22px 26px;
+    box-shadow:0 20px 50px rgba(0,0,0,0.35);
+  }
+  .tabRow{display:flex;gap:6px;background:rgba(0,0,0,0.25);padding:4px;border-radius:12px;margin-bottom:18px;}
+  .tabBtn{
+    flex:1;padding:9px 0;border:none;border-radius:9px;background:transparent;
+    color:var(--muted);font-family:'Inter',sans-serif;font-weight:600;font-size:0.9rem;cursor:pointer;
+  }
+  .tabBtn.active{background:var(--sun);color:var(--ink);}
+
+  label{display:block;font-size:0.78rem;color:var(--muted);margin:14px 0 6px;font-weight:600;letter-spacing:0.3px;text-transform:uppercase;}
+  input[type=text],input[type=password]{
+    width:100%;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.15);
+    background:rgba(255,255,255,0.07);color:var(--cream);font-size:1rem;font-family:'Inter',sans-serif;
+    outline:none;
+  }
+  input::placeholder{color:rgba(255,246,233,0.35);}
+  input:focus{border-color:var(--sun);box-shadow:0 0 0 3px rgba(255,210,63,0.2);}
+
+  .primaryBtn{
+    width:100%;margin-top:20px;padding:13px 0;border:none;border-radius:14px;
+    background:linear-gradient(180deg,var(--sun),var(--accent));
+    color:var(--ink);font-weight:800;font-size:1rem;font-family:'Baloo 2',sans-serif;
+    cursor:pointer;box-shadow:0 6px 0 #C24A1E, 0 10px 20px rgba(0,0,0,0.3);
+    transition:transform 0.08s;
+  }
+  .primaryBtn:active{transform:translateY(4px);box-shadow:0 2px 0 #C24A1E;}
+  .primaryBtn:disabled{opacity:0.6;cursor:default;}
+
+  .formMsg{min-height:18px;font-size:0.82rem;margin-top:10px;text-align:center;}
+  .formMsg.err{color:var(--danger);}
+  .formMsg.ok{color:var(--success);}
+
+  .guestLink{display:block;text-align:center;margin-top:16px;color:var(--muted);font-size:0.85rem;text-decoration:underline;cursor:pointer;}
+
+  /* ---------- Game screen ---------- */
+  #gameScreen{position:absolute;inset:0;z-index:4;display:none;}
+  #canvasWrap{position:absolute;inset:0;}
+  canvas{position:absolute;inset:0;width:100%;height:100%;}
+
+  #hud{
+    position:absolute;top:0;left:0;right:0;z-index:6;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;pointer-events:none;
+  }
+  #scorePill{
+    font-family:'JetBrains Mono',monospace;font-weight:700;font-size:1.4rem;
+    background:rgba(0,0,0,0.35);padding:6px 16px;border-radius:999px;
+    border:1px solid rgba(255,255,255,0.15);
+  }
+  #userPill{
+    font-size:0.8rem;background:rgba(0,0,0,0.35);padding:6px 12px;border-radius:999px;
+    display:flex;align-items:center;gap:8px;pointer-events:auto;
+    border:1px solid rgba(255,255,255,0.15);
+  }
+  #userPill button{
+    background:none;border:none;color:var(--sun);font-weight:700;font-size:0.75rem;cursor:pointer;padding:0;
+  }
+  #boardBtn{
+    pointer-events:auto;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);
+    color:var(--cream);border-radius:999px;padding:6px 14px;font-size:0.8rem;font-weight:600;cursor:pointer;
+  }
+  #hudRight{display:flex;gap:8px;align-items:center;}
+
+  #startOverlay,#overOverlay{
+    position:absolute;inset:0;z-index:7;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;padding:20px;
+    background:rgba(10,12,24,0.35);
+  }
+  #startOverlay h2,#overOverlay h2{
+    font-family:'Baloo 2',sans-serif;font-size:2rem;margin:0 0 6px;text-shadow:0 3px 0 rgba(0,0,0,0.3);
+  }
+  #startOverlay p,#overOverlay p{color:var(--muted);margin:0 0 18px;font-size:0.95rem;}
+  .tapBtn{
+    padding:14px 34px;border-radius:16px;border:none;
+    background:linear-gradient(180deg,var(--sun),var(--accent));
+    color:var(--ink);font-weight:800;font-size:1.1rem;font-family:'Baloo 2',sans-serif;
+    cursor:pointer;box-shadow:0 6px 0 #C24A1E;
+  }
+  .tapBtn:active{transform:translateY(4px);box-shadow:0 2px 0 #C24A1E;}
+  #overOverlay{display:none;}
+  .resultRow{display:flex;gap:22px;margin-bottom:8px;}
+  .resultStat{text-align:center;}
+  .resultStat .num{font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:700;color:var(--sun);}
+  .resultStat .lbl{font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;}
+  #startOverlay{display:flex;}
+
+  /* ---------- Leaderboard drawer ---------- */
+  #lbDrawer{
+    position:absolute;top:0;right:0;bottom:0;width:280px;max-width:82vw;z-index:9;
+    background:var(--panel-solid);border-left:1px solid rgba(255,255,255,0.1);
+    transform:translateX(100%);transition:transform 0.25s ease;
+    display:flex;flex-direction:column;padding:20px 16px;
+  }
+  #lbDrawer.open{transform:translateX(0);}
+  #lbDrawer h3{font-family:'Baloo 2',sans-serif;margin:0 0 4px;font-size:1.3rem;color:var(--sun);}
+  #lbDrawer .sub{color:var(--muted);font-size:0.78rem;margin:0 0 14px;}
+  #lbList{list-style:none;margin:0;padding:0;overflow-y:auto;flex:1;}
+  #lbList li{
+    display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:10px;
+    font-size:0.88rem;
+  }
+  #lbList li:nth-child(odd){background:rgba(255,255,255,0.04);}
+  #lbList .rank{width:22px;font-family:'JetBrains Mono',monospace;color:var(--muted);font-weight:700;}
+  #lbList li.top1 .rank{color:#FFD23F;}
+  #lbList li.top2 .rank{color:#D8D8D8;}
+  #lbList li.top3 .rank{color:#E0A15C;}
+  #lbList .uname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #lbList .pts{font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--cream);}
+  #closeLb{align-self:flex-end;background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;margin-bottom:6px;}
+  #lbLoading{color:var(--muted);font-size:0.85rem;text-align:center;padding:20px 0;}
+
+  .hidden{display:none !important;}
+  @media (max-width:380px){
+    .brand h1{font-size:2.1rem;}
+    .authCard{padding:18px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="skyBg"></div>
+  <div id="sun"></div>
+  <div id="cloudLayer"></div>
+
+  <!-- AUTH SCREEN -->
+  <div id="authScreen">
+    <div class="brand">
+      <svg class="birdmark" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="32" cy="32" r="30" fill="#FFD23F"/>
+        <path d="M18 34 Q8 30 6 22 Q16 22 22 30" fill="#FF6B35"/>
+        <circle cx="40" cy="24" r="4" fill="#1A1A2E"/>
+        <path d="M46 30 L58 34 L46 38 Z" fill="#FF6B35"/>
+      </svg>
+      <h1>Dusk<span>flap</span></h1>
+      <p>One button. One bird. Endless sunset.</p>
+    </div>
+    <div class="authCard">
+      <div class="tabRow">
+        <button class="tabBtn active" id="tabLogin">Log in</button>
+        <button class="tabBtn" id="tabSignup">Sign up</button>
+      </div>
+
+      <form id="loginForm">
+        <label for="loginUser">Username</label>
+        <input type="text" id="loginUser" placeholder="e.g. skypilot" autocomplete="username" required>
+        <label for="loginPass">Password</label>
+        <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" required>
+        <button type="submit" class="primaryBtn" id="loginBtn">Log in</button>
+        <div class="formMsg" id="loginMsg"></div>
+      </form>
+
+      <form id="signupForm" class="hidden">
+        <label for="suUser">Username</label>
+        <input type="text" id="suUser" placeholder="3-16 letters, numbers, _" autocomplete="username" required minlength="3" maxlength="16">
+        <label for="suPass">Password</label>
+        <input type="password" id="suPass" placeholder="At least 6 characters" autocomplete="new-password" required minlength="6">
+        <button type="submit" class="primaryBtn" id="signupBtn">Create account</button>
+        <div class="formMsg" id="signupMsg"></div>
+      </form>
+
+      <span class="guestLink" id="guestLink">Skip for now — play as guest</span>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="gameScreen">
+    <div id="canvasWrap"><canvas id="gameCanvas"></canvas></div>
+
+    <div id="hud">
+      <div id="scorePill">0</div>
+      <div id="hudRight">
+        <button id="boardBtn">🏆 Board</button>
+        <div id="userPill">
+          <span id="userLabel">Guest</span>
+          <button id="signOutBtn">Sign out</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="startOverlay">
+      <h2>Ready to fly?</h2>
+      <p>Tap or press Space to flap</p>
+      <button class="tapBtn" id="startBtn">Start</button>
+    </div>
+
+    <div id="overOverlay">
+      <h2>You crashed!</h2>
+      <div class="resultRow">
+        <div class="resultStat"><div class="num" id="finalScore">0</div><div class="lbl">Score</div></div>
+        <div class="resultStat"><div class="num" id="bestScore">0</div><div class="lbl">Best</div></div>
+      </div>
+      <p id="saveMsg">Saving your score…</p>
+      <button class="tapBtn" id="retryBtn">Fly again</button>
+    </div>
+
+    <div id="lbDrawer">
+      <button id="closeLb">✕</button>
+      <h3>🏆 Leaderboard</h3>
+      <p class="sub">Top flights of all time</p>
+      <div id="lbLoading">Loading…</div>
+      <ul id="lbList"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= SUPABASE ================= */
+const SUPABASE_URL = "https://onqmmqttjsyqaxqoycmt.supabase.co";
+const SUPABASE_KEY = "sb_publishable_aVSKCmBRQlUXj3O2ZZ2tIA_iAoKr-Q7";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const EMAIL_DOMAIN = "@duskflap.game";
+
+let currentUser = null; // { id, username } or null for guest
+let bestScoreLocal = Number(localStorage.getItem('duskflap_best') || 0);
+
+/* ================= AMBIENT CLOUDS ================= */
+function spawnClouds(){
+  const layer = document.getElementById('cloudLayer');
+  layer.innerHTML = '';
+  for(let i=0;i<6;i++){
+    const c = document.createElement('div');
+    c.className = 'cloud';
+    const w = 60 + Math.random()*90, h = w*0.4;
+    c.style.width = w+'px'; c.style.height = h+'px';
+    c.style.top = (10+Math.random()*35)+'%';
+    c.style.left = (100+Math.random()*40)+'vw';
+    c.style.animationDuration = (25+Math.random()*20)+'s';
+    c.style.animationDelay = (-Math.random()*30)+'s';
+    layer.appendChild(c);
+  }
+}
+spawnClouds();
+
+/* ================= AUTH UI ================= */
+const authScreen = document.getElementById('authScreen');
+const gameScreen = document.getElementById('gameScreen');
+const tabLogin = document.getElementById('tabLogin');
+const tabSignup = document.getElementById('tabSignup');
+const loginForm = document.getElementById('loginForm');
+const signupForm = document.getElementById('signupForm');
+
+tabLogin.onclick = ()=>{
+  tabLogin.classList.add('active'); tabSignup.classList.remove('active');
+  loginForm.classList.remove('hidden'); signupForm.classList.add('hidden');
+};
+tabSignup.onclick = ()=>{
+  tabSignup.classList.add('active'); tabLogin.classList.remove('active');
+  signupForm.classList.remove('hidden'); loginForm.classList.add('hidden');
+};
+
+function setMsg(el, text, kind){
+  el.textContent = text;
+  el.className = 'formMsg' + (kind ? ' '+kind : '');
+}
+
+signupForm.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const btn = document.getElementById('signupBtn');
+  const msg = document.getElementById('signupMsg');
+  const username = document.getElementById('suUser').value.trim();
+  const password = document.getElementById('suPass').value;
+  const validName = /^[a-zA-Z0-9_]{3,16}$/.test(username);
+  if(!validName){ setMsg(msg,'Use 3-16 letters, numbers or _','err'); return; }
+  btn.disabled = true; setMsg(msg,'Creating your account…');
+  const fakeEmail = username.toLowerCase()+EMAIL_DOMAIN;
+  const { data, error } = await sb.auth.signUp({
+    email: fakeEmail,
+    password,
+    options:{ data:{ username } }
+  });
+  btn.disabled = false;
+  if(error){
+    if(error.message.toLowerCase().includes('already')) setMsg(msg,'That username is taken.','err');
+    else setMsg(msg,error.message,'err');
+    return;
+  }
+  setMsg(msg,'Account created! Logging you in…','ok');
+  await loginWith(fakeEmail, password, username);
+});
+
+loginForm.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  const msg = document.getElementById('loginMsg');
+  const username = document.getElementById('loginUser').value.trim();
+  const password = document.getElementById('loginPass').value;
+  btn.disabled = true; setMsg(msg,'Logging in…');
+  const fakeEmail = username.toLowerCase()+EMAIL_DOMAIN;
+  const { error } = await loginWith(fakeEmail, password, username);
+  btn.disabled = false;
+  if(error) setMsg(msg,'Wrong username or password.','err');
+});
+
+async function loginWith(email, password, usernameFallback){
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if(error) return { error };
+  currentUser = { id: data.user.id, username: usernameFallback };
+  enterGame();
+  return { error:null };
+}
+
+document.getElementById('guestLink').onclick = ()=>{
+  currentUser = null;
+  enterGame();
+};
+
+document.getElementById('signOutBtn').onclick = async ()=>{
+  if(currentUser) await sb.auth.signOut();
+  currentUser = null;
+  gameScreen.style.display='none';
+  authScreen.style.display='flex';
+  resetGame();
+};
+
+function enterGame(){
+  authScreen.style.display='none';
+  gameScreen.style.display='block';
+  document.getElementById('userLabel').textContent = currentUser ? currentUser.username : 'Guest';
+  document.getElementById('signOutBtn').textContent = currentUser ? 'Sign out' : 'Log in';
+  document.getElementById('bestScore').textContent = bestScoreLocal;
+  resizeCanvas();
+}
+
+/* If already logged in (session restore) */
+sb.auth.getSession().then(({data})=>{
+  if(data.session && data.session.user){
+    const u = data.session.user;
+    const uname = u.user_metadata && u.user_metadata.username ? u.user_metadata.username : u.email.split('@')[0];
+    currentUser = { id: u.id, username: uname };
+    enterGame();
+  }
+});
+
+/* ================= GAME ================= */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let W, H, DPR;
+
+function resizeCanvas(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = canvas.clientWidth = gameScreen.clientWidth;
+  H = canvas.clientHeight = gameScreen.clientHeight;
+  canvas.width = W*DPR; canvas.height = H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', resizeCanvas);
+
+const GRAVITY = 1500;
+const FLAP_VEL = -420;
+const PIPE_GAP = 170;
+const PIPE_W = 64;
+const PIPE_SPEED = 150;
+const PIPE_INTERVAL = 1.4; // seconds
+
+let bird, pipes, score, state, lastTime, spawnTimer, groundOffset;
+
+function resetGame(){
+  bird = { x: 90, y: 200, vy: 0, r: 16, rot:0 };
+  pipes = [];
+  score = 0;
+  spawnTimer = 0;
+  groundOffset = 0;
+  state = 'start'; // start | playing | dead
+  document.getElementById('scorePill').textContent = '0';
+  document.getElementById('startOverlay').style.display='flex';
+  document.getElementById('overOverlay').style.display='none';
+}
+resetGame();
+
+function flap(){
+  if(state==='start'){ state='playing'; document.getElementById('startOverlay').style.display='none'; }
+  if(state==='playing'){ bird.vy = FLAP_VEL; }
+  if(state==='dead'){ /* ignore, handled by retry btn */ }
+}
+
+window.addEventListener('keydown', (e)=>{
+  if(e.code==='Space'){ e.preventDefault(); flap(); }
+});
+canvas.addEventListener('pointerdown', flap);
+
+function spawnPipe(){
+  const margin = 60;
+  const centerY = margin + Math.random()*(H - margin*2 - PIPE_GAP) + PIPE_GAP/2;
+  pipes.push({ x: W+PIPE_W, topH: centerY - PIPE_GAP/2, gapY: centerY, passed:false });
+}
+
+function rectCircleColl(cx,cy,r, rx,ry,rw,rh){
+  const closestX = Math.max(rx, Math.min(cx, rx+rw));
+  const closestY = Math.max(ry, Math.min(cy, ry+rh));
+  const dx = cx-closestX, dy = cy-closestY;
+  return (dx*dx+dy*dy) < r*r;
+}
+
+function update(dt){
+  if(state!=='playing') return;
+  bird.vy += GRAVITY*dt;
+  bird.y += bird.vy*dt;
+  bird.rot = Math.max(-0.5, Math.min(1.2, bird.vy/500));
+
+  spawnTimer += dt;
+  if(spawnTimer >= PIPE_INTERVAL){ spawnTimer=0; spawnPipe(); }
+
+  groundOffset -= PIPE_SPEED*dt;
+
+  for(const p of pipes){
+    p.x -= PIPE_SPEED*dt;
+    if(!p.passed && p.x+PIPE_W < bird.x){ p.passed=true; score++; document.getElementById('scorePill').textContent = score; }
+  }
+  pipes = pipes.filter(p=>p.x > -PIPE_W-10);
+
+  const groundY = H-40;
+  if(bird.y+bird.r > groundY || bird.y-bird.r < 0){ die(); return; }
+  for(const p of pipes){
+    if(rectCircleColl(bird.x,bird.y,bird.r-2, p.x,0,PIPE_W,p.topH) ||
+       rectCircleColl(bird.x,bird.y,bird.r-2, p.x,p.gapY+PIPE_GAP/2,PIPE_W, groundY-(p.gapY+PIPE_GAP/2))){
+      die(); return;
+    }
+  }
+}
+
+function die(){
+  state='dead';
+  document.getElementById('finalScore').textContent = score;
+  if(score > bestScoreLocal){ bestScoreLocal = score; localStorage.setItem('duskflap_best', score); }
+  document.getElementById('bestScore').textContent = bestScoreLocal;
+  document.getElementById('overOverlay').style.display='flex';
+  submitScore(score);
+}
+
+async function submitScore(finalScore){
+  const saveMsg = document.getElementById('saveMsg');
+  if(!currentUser){ saveMsg.textContent = 'Log in to appear on the leaderboard.'; return; }
+  saveMsg.textContent = 'Saving your score…';
+  const { error } = await sb.from('scores').insert({
+    user_id: currentUser.id,
+    username: currentUser.username,
+    score: finalScore
+  });
+  saveMsg.textContent = error ? 'Could not save score.' : 'Score saved!';
+}
+
+document.getElementById('startBtn').onclick = flap;
+document.getElementById('retryBtn').onclick = ()=>{ resetGame(); };
+
+/* ---------- Drawing ---------- */
+function drawBackground(){
+  ctx.clearRect(0,0,W,H);
+}
+
+function drawGround(){
+  const groundY = H-40;
+  ctx.fillStyle = '#3E2B1E';
+  ctx.fillRect(0,groundY,W,40);
+  ctx.fillStyle = '#5B3E2A';
+  ctx.fillRect(0,groundY,W,8);
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  const tileW = 30;
+  const off = ((groundOffset % tileW)+tileW)%tileW;
+  for(let x=-off; x<W; x+=tileW){ ctx.fillRect(x,groundY+10,tileW/2,4); }
+}
+
+function drawPipes(){
+  const groundY = H-40;
+  for(const p of pipes){
+    const grad = ctx.createLinearGradient(p.x,0,p.x+PIPE_W,0);
+    grad.addColorStop(0,'#2D6A4F'); grad.addColorStop(0.5,'#3A8562'); grad.addColorStop(1,'#1F4D38');
+    ctx.fillStyle = grad;
+    ctx.fillRect(p.x,0,PIPE_W,p.topH);
+    ctx.fillRect(p.x-4,p.topH-14,PIPE_W+8,14);
+    const bottomY = p.gapY+PIPE_GAP/2;
+    ctx.fillRect(p.x,bottomY,PIPE_W,groundY-bottomY);
+    ctx.fillRect(p.x-4,bottomY,PIPE_W+8,14);
+  }
+}
+
+function drawBird(){
+  ctx.save();
+  ctx.translate(bird.x,bird.y);
+  ctx.rotate(bird.rot);
+  ctx.fillStyle = '#FFD23F';
+  ctx.beginPath(); ctx.ellipse(0,0,bird.r,bird.r*0.85,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#FF6B35';
+  const flapPhase = Math.sin(Date.now()/90)*6;
+  ctx.beginPath(); ctx.ellipse(-4,4+flapPhase*0.3,9,6,0.3,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#1A1A2E';
+  ctx.beginPath(); ctx.arc(7,-5,2.6,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#FF6B35';
+  ctx.beginPath(); ctx.moveTo(bird.r-2,-2); ctx.lineTo(bird.r+10,2); ctx.lineTo(bird.r-2,6); ctx.fill();
+  ctx.restore();
+}
+
+function draw(){
+  drawBackground();
+  drawPipes();
+  drawBird();
+  drawGround();
+}
+
+function loop(ts){
+  if(!lastTime) lastTime = ts;
+  const dt = Math.min((ts-lastTime)/1000, 0.033);
+  lastTime = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ================= LEADERBOARD ================= */
+const lbDrawer = document.getElementById('lbDrawer');
+document.getElementById('boardBtn').onclick = ()=>{ lbDrawer.classList.add('open'); loadLeaderboard(); };
+document.getElementById('closeLb').onclick = ()=>{ lbDrawer.classList.remove('open'); };
+
+async function loadLeaderboard(){
+  const list = document.getElementById('lbList');
+  const loading = document.getElementById('lbLoading');
+  loading.style.display='block'; list.innerHTML='';
+  const { data, error } = await sb.from('scores')
+    .select('username,score')
+    .order('score',{ascending:false})
+    .limit(20);
+  loading.style.display='none';
+  if(error || !data || data.length===0){
+    loading.style.display='block';
+    loading.textContent = error ? 'Could not load leaderboard.' : 'No flights yet — be the first!';
+    return;
+  }
+  data.forEach((row,i)=>{
+    const li = document.createElement('li');
+    if(i===0) li.className='top1'; else if(i===1) li.className='top2'; else if(i===2) li.className='top3';
+    li.innerHTML = `<span class="rank">#${i+1}</span><span class="uname">${escapeHtml(row.username)}</span><span class="pts">${row.score}</span>`;
+    list.appendChild(li);
+  });
+}
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+</script>
+</body>
+</html>
